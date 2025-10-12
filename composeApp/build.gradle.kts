@@ -11,7 +11,6 @@ plugins {
 
 kotlin {
     jvm()
-
     sourceSets {
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -24,6 +23,12 @@ kotlin {
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation(libs.runtime)
             implementation(libs.kotlinx.datetime)
+            implementation(project.dependencies.platform(libs.koin.bom))
+            implementation(libs.koin.core)
+            implementation(libs.koin.compose)
+            implementation(libs.koin.compose.viewmodel)
+            implementation(libs.kermit)
+
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -33,6 +38,7 @@ kotlin {
             implementation(libs.kotlinx.coroutinesSwing)
             implementation(libs.runtime)
             implementation(libs.sqlite.driver)
+            implementation(libs.koin.core)
         }
     }
 }

@@ -26,5 +26,3 @@ internal fun TLEvent.withRelatedEvents(relatedEvents: List<TLEvent>): TLEvent {
 internal fun TLEvent.withRelatedEntities(relatedEntities: List<TLEntity>): TLEvent {
     return this.copy(relatedEntities = relatedEntities)
 }
-
-

@@ -11,13 +11,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.plus
 import kotlinx.datetime.minus
 import dev.benj.timelinebuilder.tlevent.TLEvent
 import dev.benj.timelinebuilder.tlevent.TLEntity
+import dev.benj.timelinebuilder.tlevent.TLEventViewModel
 import dev.benj.timelinebuilder.tlevent.TLTag
+import co.touchlab.kermit.Logger
 
 /**
  * A composable that displays a timeline of events within a given date range - the main view of the app.
@@ -63,18 +66,17 @@ import dev.benj.timelinebuilder.tlevent.TLTag
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun TimelineDisplay(
-    events: List<TLEvent> = emptyList(),
+    viewModel: TLEventViewModel,
     availableTags: List<TLTag> = emptyList(),
     availableEntities: List<TLEntity> = emptyList(),
     initialStartDate: LocalDate = LocalDate.parse("2020-01-01"),
     initialEndDate: LocalDate = LocalDate.parse("2025-12-31"),
-    onEventSave: (TLEvent) -> Unit = {},
-    onEventDelete: (TLEvent) -> Unit = {},
-    onCreateRelatedEvent: (String) -> Unit = {},
-    onCreateRelatedEntity: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+
     // Timeline state
+    val events = viewModel.eventList.collectAsStateWithLifecycle()
+
     var displayRangeStart by remember { mutableStateOf(initialStartDate) }
     var displayRangeEnd by remember { mutableStateOf(initialEndDate) }
     var selectedEvent by remember { mutableStateOf<TLEvent?>(null) }
@@ -92,11 +94,15 @@ internal fun TimelineDisplay(
     val zoomLevels = listOf(1, 7, 30, 90, 365, 1825) // 1 day, 1 week, 1 month, 3 months, 1 year, 5 years
     var currentZoomIndex by remember { mutableStateOf(4) } // Start at 1 year
 
+    val onEventSave = viewModel::addEvent
+    val onEventDelete = viewModel::deleteEvent
+
+
     // Filter events based on date range and filters
     val filteredEvents = remember(events, displayRangeStart, displayRangeEnd, selectedTagFilter, selectedEntityFilter) {
-        events.filter { event ->
+        events.value.filter { event ->
             val eventDate = event.startDateTime.date
-            val inDateRange = eventDate >= displayRangeStart && eventDate <= displayRangeEnd
+            val inDateRange = eventDate in displayRangeStart..displayRangeEnd
             val matchesTagFilter = selectedTagFilter == null || event.tags.contains(selectedTagFilter)
             val matchesEntityFilter = selectedEntityFilter == null || event.relatedEntities.contains(selectedEntityFilter)
             inDateRange && matchesTagFilter && matchesEntityFilter
@@ -104,9 +110,9 @@ internal fun TimelineDisplay(
     }
 
     // Functions for timeline navigation
-    fun zoomIn() {
-        if (currentZoomIndex > 0) {
-            currentZoomIndex--
+    fun changeZoom(upOrDown: Int) {
+        if ((upOrDown == -1 && currentZoomIndex > 0) || (upOrDown == 1 && currentZoomIndex < zoomLevels.size - 1)) {
+            currentZoomIndex += upOrDown
             val newRangeDays = zoomLevels[currentZoomIndex]
             val currentRangeDays = (displayRangeEnd.toEpochDays() - displayRangeStart.toEpochDays()).toInt()
             val centerPoint = displayRangeStart.plus(currentRangeDays / 2, DateTimeUnit.DAY)
@@ -115,16 +121,6 @@ internal fun TimelineDisplay(
         }
     }
 
-    fun zoomOut() {
-        if (currentZoomIndex < zoomLevels.size - 1) {
-            currentZoomIndex++
-            val newRangeDays = zoomLevels[currentZoomIndex]
-            val currentRangeDays = (displayRangeEnd.toEpochDays() - displayRangeStart.toEpochDays()).toInt()
-            val centerPoint = displayRangeStart.plus(currentRangeDays / 2, DateTimeUnit.DAY)
-            displayRangeStart = centerPoint.minus(newRangeDays / 2, DateTimeUnit.DAY)
-            displayRangeEnd = centerPoint.plus(newRangeDays / 2, DateTimeUnit.DAY)
-        }
-    }
 
     fun scrollLeft() {
         val scrollAmount = (zoomLevels[currentZoomIndex] / 4).coerceAtLeast(1)
@@ -176,10 +172,10 @@ internal fun TimelineDisplay(
                             Button(onClick = { scrollRight() }) {
                                 Text("▶")
                             }
-                            Button(onClick = { zoomIn() }, enabled = currentZoomIndex > 0) {
+                            Button(onClick = { changeZoom(-1) }, enabled = currentZoomIndex > 0) {
                                 Text("⊕")
                             }
-                            Button(onClick = { zoomOut() }, enabled = currentZoomIndex < zoomLevels.size - 1) {
+                            Button(onClick = { changeZoom(1) }, enabled = currentZoomIndex < zoomLevels.size - 1) {
                                 Text("⊖")
                             }
                         }
@@ -337,7 +333,7 @@ internal fun TimelineDisplay(
                 isEditing = isEditing,
                 isCreating = isCreating,
                 availableTags = availableTags,
-                availableEvents = events,
+                availableEvents = events.value,
                 availableEntities = availableEntities,
                 onClose = {
                     isDetailViewVisible = false
@@ -351,15 +347,18 @@ internal fun TimelineDisplay(
                     selectedEvent = null
                     isEditing = false
                     isCreating = false
+                    Logger.d("TimelineDisplay - saving event - $savedEvent" )
                 },
                 onDelete = { eventToDelete ->
-                    onEventDelete(eventToDelete)
+                    onEventDelete(eventToDelete.id)
                     isDetailViewVisible = false
                     selectedEvent = null
                     isEditing = false
                     isCreating = false
+                    Logger.d("TimelineDisplay - deleting event - $eventToDelete" )
                 },
                 onCancel = {
+                    Logger.d("TimelineDisplay - cancelling edit/create" )
                     isEditing = false
                     if (isCreating) {
                         isDetailViewVisible = false
@@ -379,9 +378,29 @@ internal fun TimelineDisplay(
                 onExpandTimelineRange = { eventStart, eventEnd ->
                     expandRangeToIncludeEvent(eventStart.date, eventEnd.date)
                 },
-                onCreateRelatedEvent = onCreateRelatedEvent,
-                onCreateRelatedEntity = onCreateRelatedEntity
+                // TODO: Implement these callbacks (or get rid of them... tbd)
+                onCreateRelatedEvent = {},
+                onCreateRelatedEntity = {}
             )
         }
     }
 }
+
+//internal class TLDisplayState {
+//    var displayRangeStart by mutableStateOf(LocalDate.parse("2020-01-01"))
+//    var displayRangeEnd by mutableStateOf(LocalDate.parse("2025-12-31"))
+//    var selectedEvent by mutableStateOf<TLEvent?>(null)
+//    var isDetailViewVisible by mutableStateOf(false)
+//    var isEditing by mutableStateOf(false)
+//    var isCreating by mutableStateOf(false)
+//
+//    // Display options
+//    var showConnections by mutableStateOf(false)
+//    var showRelatedHighlights by mutableStateOf(false)
+//    var selectedTagFilter by mutableStateOf<TLTag?>(null)
+//    var selectedEntityFilter by mutableStateOf<TLEntity?>(null)
+//
+//    // Zoom levels (in days)
+//    val zoomLevels = listOf(1, 7, 30, 90, 365, 1825) // 1 day, 1 week, 1 month, 3 months, 1 year, 5 years
+//    var currentZoomIndex by mutableStateOf(4) // Start at 1 year
+//}
